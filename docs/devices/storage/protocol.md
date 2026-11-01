@@ -333,12 +333,30 @@ and `storage/consumer/`; no firmware image is committed.
 | 4 platform | `2b100000`, 16 bytes | Complete10516a28/3e/4c configuration fields; retained values without invented readiness or IRQ |
 
 Four SysBus IRQ outputs are ordered `f2/f3/f4/f6` (242/243/244/246). Real native
-INTx assertion/deassertion latches PHY24 bits28/29 and drives f3. Native PCI MSI
+INTx assertion latches PHY24 bit28 and drives f3. Ordinary INTx release after
+CQ consumption changes the input level without producing bit29: original MAS
+ISR `10517a18` dispatches bit28 to completion event200 and bit29 to abort event400.
+No independent hardware-abort producer is bound to bit29. Native PCI MSI
 writes latch DBI830, subject to enable828 and mask82c, and drive f6; W1C830
 acknowledges them. f2/f4 remain low without an implemented source-proven cause;
 they are not used as a substitute completion interrupt. Upstream NVMe supplies
 MSI-X rather than ordinary MSI. The firmware's capability-ID5 branch remains
 conditional; no fake MSI capability is installed.
+
+The native endpoint advertises only operational power state PS0 (`NPSS=0`).
+The generated `cmake/nvme.cmake` adaptation makes Power Management feature02
+changeable within that finite profile: SET PS0 completes through the native
+command/CQ path, GET current preserves legal workload hints0..2, and GET
+default/saved returns0. Unsupported power states, reserved fields/hints and
+save requests are rejected; reset restores0 and VMState retains the feature
+value when needed. These fields follow NVMe1.4c sections5.21.1.2/8.4.3,
+[Figures278/279/461](https://www.nvmexpress.org/wp-content/uploads/NVM-Express-1_4c-2021.06.28-Ratified.pdf).
+An always-operational PS0 is a virtual endpoint assumption, not a measurement
+of card power, camera power states or transition latency. WRITE, FLUSH and
+their data/IRQ/error completion remain the upstream controller's real block-I/O
+operations. The scoped native `power-ps0` fixture passes with feature rejection
+boundaries, reset and an actual512-byte WRITE/FLUSH/READ plus backend-byte check;
+this does not establish physical-card behavior.
 
 The required pre-realize QOM `memory` link selects the actual CPU-domain memory
 region. MAS machine glue supplies `get_system_memory()`; an isolated SLA domain
