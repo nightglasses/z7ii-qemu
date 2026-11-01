@@ -26,7 +26,42 @@ Each domain retains a separate address space and interrupt controller. SLA uses 
 
 ## Reset, cache and page tables
 
-Current diagnostic prelaunch CPSR 0x400001d3 is upstream Cortex-A7 reset state. The model sets only entry PC, reset-cbar, cntfrq and domain capacity. It does not pre-write SCTLR, ACTLR, TTBR0/1, TTBCR, DACR, VBAR, cache state, secure-bank state, RTOS flags or task objects. Unchanged firmware produces those values.
+Current diagnostic prelaunch CPSR 0x400001d3 is upstream Cortex-A7 reset state. The model sets entry PC, reset-cbar, cntfrq and domain capacity. It does not pre-write SCTLR, TTBR0/1, TTBCR, DACR, VBAR, cache state, secure-bank state, RTOS flags or task objects. Unchanged firmware produces those values.
+
+MAS CPUs have a board-scoped ACTLR read/write override. The pinned upstream
+Cortex-A7 exposes ACTLR as `ARM_CP_CONST`, which discards writes. Original
+C1.70 MAS execution on both CPUs reads ACTLR at VA `0x1002bcdc`, sets SMP,
+clears L1PCTL, and writes ACTLR at VA `0x1002bce8`, before enabling the MMU
+and caches. Discarding that write leaves an incorrect SMP readback.
+
+The override follows the [Cortex-A7 r0p5 TRM, section 4.3.31 and table
+4-60](https://documentation-service.arm.com/static/602cf701083323480d479d18):
+each CPU resets ACTLR to `0x6000` (L1PCTL=3, SMP=0), implements the secure
+writable mask `0x1000fc40`, and shares that CPU's register between security
+states. Non-secure writes change only SMP when NSACR.NS_SMP permits them.
+Reserved bits read zero. The original HCR.TACR access check is retained;
+raw CP register migration saves and restores the same per-CPU state.
+Generic Cortex-A7 CPUs and private SLA CPUs retain upstream behavior.
+
+The `nikon_actlr_unit` fixture checks reset, readback, masks, CPU isolation,
+non-secure permissions, trap checks, raw migration and the unchanged generic
+A7. All four native unit cases pass. The separate
+`/arm/nikon/actlr-tcg` synthetic instruction fixture passes on both CPUs,
+including a second execution after reset. It executes actual MRC/MCR
+instructions rather than supplying register values through a debugger.
+
+A startup instruction trace from the original MAS path contains the
+straight-line ACTLR read/modify/write block twice, followed by both CPUs'
+SCTLR enable blocks at VA `0x1002bd00`. In the subsequent ordinary
+Boot → menu Run → Stop → Save bench integration run, both CPU headers
+report ACTLR=`0x40`. That canceled collection contains 52 executed CPU
+samples; one observed 2 MiB working-set sample verifies 524,545 words with
+zero mismatches. The native file path writes 6,539,740 bytes, which decode
+strictly and match the captured bytes. This demonstrates functional
+execution and export, rather than completion of the full CPU test matrix.
+
+This is a functional register-state correction: it does not implement
+cache timing, prefetch timing, or measure physical coherency performance.
 
 The MAS table is copied by the guest from its 16 KiB source table to 0xb2b74000. SLA guest copies its 16 KiB table to 0xc18e4000. These are source/runtime contracts; the virtual cold-zero RAM and mapped backing remain model choices. Table walks must preserve each domain's physical owner rather than using equal numerical addresses as a cross-domain alias.
 
@@ -42,7 +77,7 @@ A functional QEMU run cannot measure camera CPU throughput, cache latency, DDR b
 
 Current project sources: `hw/nikon/machines/z7ii.c`, `sla.c`, `ex.c`; [SLA startup](sla.md), [GIC runtime contract](../devices/gic/runtime.md), [bundle execution](../runtime/ex.md), and [component boundary](components.md).
 
-Before changing a physical parameter, obtain original firmware/loader receipts for MIDR/MPIDR/CBAR and CP15 reset state, clock/DDR initialization registers, and full bundle domain/event routing. Exact silicon identity, cold BootROM, physical core count, DDR channels/capacity and CPU/DDR clocks remain open. No model behavior is changed by this audit.
+Before changing a physical parameter, obtain original firmware/loader receipts for MIDR/MPIDR/CBAR and CP15 reset state, clock/DDR initialization registers, and full bundle domain/event routing. Exact silicon identity, cold BootROM, physical core count, DDR channels/capacity and CPU/DDR clocks remain open.
 
 ## Open parameter questions
 

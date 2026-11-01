@@ -23,6 +23,7 @@
 #include "system/system.h"
 #include "system/tcg.h"
 #include "target/arm/cpu.h" /* IWYU pragma: keep */
+#include "target/arm/cpregs.h"
 #include "hw/nikon/devices.h"
 #include "hw/nikon/bundle.h"
 #include "hw/nikon/storage.h"
@@ -199,6 +200,7 @@ typedef struct Z7IIRAM {
 struct Z7IIMachineState {
     MachineState parent_obj;
     ARMCPU cpu[Z7II_MAX_CPUS];
+    uint32_t actlr[Z7II_MAX_CPUS];
     unsigned num_cpus;
     char *bundle_path;
     char *sla_boot_prefix;
@@ -558,6 +560,74 @@ static const MemoryRegionOps z7ii_nv_ops = {
     .valid = { .min_access_size = 1, .max_access_size = 8, .unaligned = true },
     .impl = { .min_access_size = 1, .max_access_size = 8, .unaligned = true },
 };
+
+/* Cortex-A7 r0p5 TRM DDI 0464F, section 4.3.31.  This state records
+ * guest CP15 writes; TCG continues to provide functional coherent RAM,
+ * rather than a cycle/cache timing model.  The original MAS writes SMP at
+ * 0x1002bce8, before enabling its MMU and caches. */
+#define Z7II_ACTLR_MASK 0x1000fc40U
+#define Z7II_ACTLR_RESET 0x00006000U
+
+static uint32_t *z7ii_actlr_state(CPUARMState *env)
+{
+    ARMCPU *cpu = env_archcpu(env);
+    Z7IIMachineState *s = Z7II_MACHINE(OBJECT(cpu)->parent);
+
+    for (unsigned i = 0; i < s->num_cpus; i++) {
+        if (cpu == &s->cpu[i]) {
+            return &s->actlr[i];
+        }
+    }
+    g_assert_not_reached();
+}
+
+static uint64_t z7ii_actlr_read(CPUARMState *env, const ARMCPRegInfo *ri)
+{
+    return *z7ii_actlr_state(env);
+}
+
+static void z7ii_actlr_raw_write(CPUARMState *env, const ARMCPRegInfo *ri,
+                                uint64_t value)
+{
+    *z7ii_actlr_state(env) = value & Z7II_ACTLR_MASK;
+}
+
+static void z7ii_actlr_write(CPUARMState *env, const ARMCPRegInfo *ri,
+                            uint64_t value)
+{
+    uint32_t *state = z7ii_actlr_state(env);
+    uint32_t mask = arm_is_secure(env) ? Z7II_ACTLR_MASK :
+                    (env->cp15.nsacr & (1U << 18)) ? 0x40U : 0;
+
+    *state = (*state & ~mask) | (value & mask);
+}
+
+static void z7ii_actlr_reset(CPUARMState *env, const ARMCPRegInfo *ri)
+{
+    *z7ii_actlr_state(env) = Z7II_ACTLR_RESET;
+}
+
+static void z7ii_install_actlr(ARMCPU *cpu)
+{
+    const ARMCPRegInfo *original = get_arm_cp_reginfo(cpu->cp_regs,
+        ENCODE_CP_REG(15, false, 0, 1, 0, 0, 1));
+    ARMCPRegInfo reg = {
+        .name = "ACTLR_EL1", .state = ARM_CP_STATE_BOTH,
+        .opc0 = 3, .opc1 = 0, .crn = 1, .crm = 0, .opc2 = 1,
+        .access = PL1_RW, .type = ARM_CP_OVERRIDE,
+        .readfn = z7ii_actlr_read, .writefn = z7ii_actlr_write,
+        .raw_readfn = z7ii_actlr_read,
+        .raw_writefn = z7ii_actlr_raw_write,
+        .resetfn = z7ii_actlr_reset,
+    };
+
+    /* This is deliberately board scoped; generic upstream A7s are unchanged.
+     * Keep upstream's TACR permission/trap check and its register encodings. */
+    assert(original && (original->type & ARM_CP_CONST));
+    reg.accessfn = original->accessfn;
+    define_one_arm_cp_reg(cpu, &reg);
+    z7ii_actlr_reset(&cpu->env, &reg);
+}
 
 static void z7ii_reset(void *opaque)
 {
@@ -1121,6 +1191,7 @@ static void z7ii_init(MachineState *machine)
         qdev_prop_set_uint64(DEVICE(&s->cpu[i]), "reset-cbar", CBAR_BASE);
         qdev_prop_set_uint64(DEVICE(&s->cpu[i]), "cntfrq", TIMER_HZ);
         qdev_realize(DEVICE(&s->cpu[i]), NULL, &error_fatal);
+        z7ii_install_actlr(&s->cpu[i]);
     }
 
     s->memc = sysbus_create_simple(TYPE_NIKON_MEMC, MEMC_BASE, NULL);
