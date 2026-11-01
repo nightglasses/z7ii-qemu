@@ -63,6 +63,30 @@ does not alter firmware, PTEs, CPU state, original allocation sizes, RAM content
 reset persistence or the declared cold-zero storage assumptions. It establishes
 no additional physical-camera DDR geometry.
 
+## Source-bounded default pool 15
+
+MAS C1.70 ROM VA `11982938 + 15*4` selects row `11983290`. That row
+contains total bytes `0f41d000`, allocation unit `0034c800`, count `4a`,
+and base `cc700000`. The native free-pool table agrees with that complete
+extent. The runtime short-descriptor table maps every intersecting section
+from `cc7` through `dbb` to the same physical section as Normal non-cacheable
+memory (`cc714422` through `dbb14422`, with SCTLR.TRE clear).
+
+The board therefore gives PA `[cc700000, dbb1d000)` one independent
+`Z7IIRAM` backing, using the same exact-boundary helper as the other native
+capture pools. It adds no kernel heap capacity, physical alias, allocation
+success result, decoder output or ready state. The earlier display-buffer
+mapping ends at `cc63b000`; its gap before this pool remains unmapped.
+The exclusive upper bound is the existing kind28 pool's base, whose bytes
+remain independent. This functional backing does not establish installed
+DDR size or physical memory performance.
+
+The isolated `/nikon/memory/default-pool15` native unit uses the actual
+board map with a synthetic loop image. It checks both ends, the preceding
+gap, independence from kind28/kernel/graphics RAM, and byte agreement
+between the CPU address space and QEMU's DMA memory API. It executes no
+factory decoder or camera instructions.
+
 ## Validation and next stop
 
 The new `/arm/nikon/memory/cpu-ram` qtest fails on the old helper with the

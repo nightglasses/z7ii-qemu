@@ -1407,6 +1407,20 @@ static MemTxResult ex_peripheral_write(void *opaque, hwaddr offset,
                 if (reg == 1 && (v & 0xffff0000u)) {
                     return ex_bad(s, addr, size, true);
                 }
+                if (reg == 5) {
+                    /* RM0090 Rev 21, 10.5.10: FEIE is writable with EN=1;
+                     * DMDIS/FTH are protected while enabled, and FS is RO.
+                     * Protected fields ignore writes, not bus-fault them.
+                     * The original 080437bc sets FEIE on an active stream. */
+                    uint32_t writable = 0x80 | (p->reg[0] & 1 ? 0 : 7);
+
+                    if (v & ~0xbfu) {
+                        return ex_bad(s, addr, size, true);
+                    }
+                    p->reg[5] = (old & ~writable) | (v & writable);
+                    ex_dma_update(s, c, n);
+                    return MEMTX_OK;
+                }
                 if ((p->reg[0] & 1) && reg != 0) {
                     /* RM0090 10.5.6-.8: NDTR/PAR/M0AR are write-protected
                      * while a single-buffer stream is active. Keep the live
@@ -1423,6 +1437,8 @@ static MemTxResult ex_peripheral_write(void *opaque, hwaddr offset,
                     p->initial_count = p->reg[1];
                     p->initial_memory = p->reg[3];
                     if (extract32(v, 6, 2) == 2) {
+                        /* Direct mode is forbidden for memory-to-memory. */
+                        p->reg[5] |= 4;
                         s->dma_running = true;
                         for (unsigned left = p->reg[1]; left && (p->reg[0] & 1); left--) {
                             if (!ex_dma_beat(s, c, n)) {

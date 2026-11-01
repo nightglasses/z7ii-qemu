@@ -6,7 +6,10 @@
 #include "qemu/rcu.h"
 #include "qemu/timer.h"
 #include "hw/core/sysbus.h"
+#include "hw/core/cpu.h"
 #include "hw/nikon/devices.h"
+#include "system/address-spaces.h"
+#include "system/dma.h"
 #include "system/system.h"
 
 /* The system library excludes system/main.c, as in QEMU's native fuzz runner. */
@@ -407,6 +410,63 @@ static void test_display_parameter(void)
     device_free(dev);
 }
 
+static void test_default_pool15(void)
+{
+    const hwaddr base = 0xcc700000, size = 0xf41d000;
+    const uint8_t first[] = { 0x91, 0x28, 0x73, 0x46 };
+    const uint8_t last[] = { 0x5c, 0xa3, 0x2e, 0xd1 };
+    const uint8_t neighbor[] = { 0x36, 0xb9, 0x64, 0x87 };
+    MemoryRegionSection start, tail, next, kernel, graphics;
+    AddressSpace *cpu_as;
+    uint8_t value[4];
+
+    if (!g_test_subprocess()) {
+        g_test_trap_subprocess(NULL, 10 * G_TIME_SPAN_SECOND, 0);
+        g_test_trap_assert_passed();
+        return;
+    }
+    cpu_as = cpu_get_address_space(first_cpu, 0);
+    start = memory_region_find(get_system_memory(), base, 4);
+    tail = memory_region_find(get_system_memory(), base + size - 4, 4);
+    next = memory_region_find(get_system_memory(), base + size, 4);
+    kernel = memory_region_find(get_system_memory(), 0xb2d02400, 4);
+    graphics = memory_region_find(get_system_memory(), 0xbb300000, 4);
+    g_assert_true(memory_region_is_ram(start.mr));
+    g_assert_true(start.mr == tail.mr);
+    g_assert_cmphex(start.offset_within_region, ==, 0);
+    g_assert_cmphex(tail.offset_within_region, ==, size - 4);
+    g_assert_cmphex(memory_region_size(start.mr), ==, size);
+    g_assert_true(start.mr != kernel.mr && start.mr != graphics.mr);
+    /* The exclusive upper bound is already kind28's base. It is independent
+     * RAM, not padding or an alias of this pool. The preceding gap stays a fault. */
+    g_assert_true(memory_region_is_ram(next.mr) && next.mr != start.mr);
+    g_assert_cmpint(address_space_read(cpu_as, base - 1,
+                    MEMTXATTRS_UNSPECIFIED, value, 1), ==, MEMTX_ERROR);
+    g_assert_cmpint(address_space_write(cpu_as, base,
+                    MEMTXATTRS_UNSPECIFIED, first, 4), ==, MEMTX_OK);
+    g_assert_cmpint(dma_memory_read(&address_space_memory, base, value, 4,
+                    MEMTXATTRS_UNSPECIFIED), ==, MEMTX_OK);
+    g_assert_cmpmem(value, 4, first, 4);
+    g_assert_cmpint(dma_memory_write(&address_space_memory, base + size - 4,
+                    last, 4, MEMTXATTRS_UNSPECIFIED), ==, MEMTX_OK);
+    g_assert_cmpint(address_space_read(cpu_as, base + size - 4,
+                    MEMTXATTRS_UNSPECIFIED, value, 4), ==, MEMTX_OK);
+    g_assert_cmpmem(value, 4, last, 4);
+    g_assert_cmpint(dma_memory_write(&address_space_memory, base + size,
+                    neighbor, 4, MEMTXATTRS_UNSPECIFIED), ==, MEMTX_OK);
+    g_assert_cmpint(address_space_read(cpu_as, base,
+                    MEMTXATTRS_UNSPECIFIED, value, 4), ==, MEMTX_OK);
+    g_assert_cmpmem(value, 4, first, 4);
+    g_assert_cmpint(address_space_read(cpu_as, base + size - 4,
+                    MEMTXATTRS_UNSPECIFIED, value, 4), ==, MEMTX_OK);
+    g_assert_cmpmem(value, 4, last, 4);
+    memory_region_unref(start.mr);
+    memory_region_unref(tail.mr);
+    memory_region_unref(next.mr);
+    memory_region_unref(kernel.mr);
+    memory_region_unref(graphics.mr);
+}
+
 static void test_lifecycle(void)
 {
     MemoryFixture *f[2] = { memory_new(0, 0), memory_new(0, 0) };
@@ -473,21 +533,34 @@ int main(int argc, char **argv)
     g_autofree char *socket = g_build_filename(directory, "qtest", NULL);
     g_autofree char *chardev = g_strdup_printf("unix:%s,server=on,wait=off",
                                              socket);
-    char *qemu_argv[] = {
+    g_autofree char *image = g_build_filename(directory, "loop.bin", NULL);
+    const char *qemu_argv[] = {
         argv[0], "-machine", "none", "-accel", "qtest", "-display", "none",
-        "-nodefaults", "-qtest", chardev, NULL
+        "-nodefaults", "-qtest", chardev, NULL, NULL, NULL
     };
+    int qemu_argc = G_N_ELEMENTS(qemu_argv) - 3;
     int result;
 
     g_assert_nonnull(directory);
     g_test_init(&argc, &argv, NULL);
-    qemu_init(G_N_ELEMENTS(qemu_argv) - 1, qemu_argv);
+    if (g_test_subprocess()) {
+        const char loop[] = { 0xfe, 0xff, 0xff, 0xea };
+
+        g_assert_true(g_file_set_contents(image, loop, sizeof(loop), NULL));
+        qemu_argv[2] = "z7ii-mas-diagnostic";
+        qemu_argv[qemu_argc++] = "-bios";
+        qemu_argv[qemu_argc++] = image;
+    }
+    qemu_argv[qemu_argc] = NULL;
+    qemu_init(qemu_argc, (char **)qemu_argv);
     g_test_add_func("/nikon/memory/boundary", test_boundary);
     g_test_add_func("/nikon/memory/display-parameter", test_display_parameter);
     g_test_add_func("/nikon/memory/lifecycle", test_lifecycle);
+    g_test_add_func("/nikon/memory/default-pool15", test_default_pool15);
     result = g_test_run();
     qemu_cleanup(result);
     unlink(socket);
+    unlink(image);
     rmdir(directory);
     return result;
 }

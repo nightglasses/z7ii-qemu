@@ -7,6 +7,7 @@
 #include "qemu/timer.h"
 #include "qemu/rcu.h"
 #include "qapi/error.h"
+#include "hw/arm/armv7m.h"
 #include "hw/core/irq.h"
 #include "hw/i2c/i2c.h"
 #include "hw/nikon/ex.h"
@@ -17,6 +18,7 @@
 #include "system/runstate.h"
 #include "system/system.h"
 #include "system/cpu-timers.h"
+#include "target/arm/cpu.h"
 
 int (*qemu_main)(void);
 
@@ -86,10 +88,16 @@ static uint32_t io_levels(I2CBus *bus)
 static void controller_write(AddressSpace *as, hwaddr address, uint32_t value)
 {
     uint8_t data[4];
+    MemTxResult result;
 
     stl_le_p(data, value);
-    g_assert_cmpint(address_space_write(as, address, MEMTXATTRS_UNSPECIFIED,
-                                       data, sizeof(data)), ==, MEMTX_OK);
+    result = address_space_write(as, address, MEMTXATTRS_UNSPECIFIED,
+                                 data, sizeof(data));
+    if (result != MEMTX_OK) {
+        g_test_message("word write address=0x%" PRIx64 " value=0x%08x result=%u",
+                       (uint64_t)address, value, result);
+    }
+    g_assert_cmpint(result, ==, MEMTX_OK);
 }
 
 static uint32_t controller_read(AddressSpace *as, hwaddr address)
@@ -196,18 +204,137 @@ static void dma_protection_boundaries(void)
                         ==, MEMTX_ERROR); /* Reserved NDTR bits stay unsupported. */
         g_assert_cmpuint(controller_read(&as, stream + 4), ==, 7);
         g_assert_cmpint(dma_write_result(&as, bank + 0xd0, 3, 4), ==, MEMTX_ERROR);
-        /* Double-buffer register updates and FCR changes while active remain
-         * outside this single-buffer contract, rather than being discarded. */
+        /* Double-buffer memory updates remain outside this contract. */
         controller_write(&as, stream, 0x40001);
         g_assert_cmpint(dma_write_result(&as, stream + 12, 0x20003000, 4),
                         ==, MEMTX_ERROR);
         controller_write(&as, stream, 1);
         g_assert_cmpint(dma_write_result(&as, stream + 16, 0x20003000, 4),
                         ==, MEMTX_ERROR);
-        g_assert_cmpint(dma_write_result(&as, stream + 20, 0x21, 4),
-                        ==, MEMTX_ERROR);
+        controller_write(&as, stream + 20, 0xa1);
+        g_assert_cmphex(controller_read(&as, stream + 20), ==, 0xa1);
         controller_write(&as, stream, 0);
     }
+    qemu_system_reset(SHUTDOWN_CAUSE_HOST_QMP_SYSTEM_RESET);
+    address_space_destroy(&as);
+    drain_call_rcu();
+}
+
+static void dma_fcr_fields(void)
+{
+    /* ST RM0090 Rev 21, 10.5.10, pages 336-337:
+     * FEIE is RW regardless of EN; FS is RO; DMDIS/FTH require EN=0.
+     * https://www.st.com.cn/resource/en/reference_manual/
+     * dm00031020-stm32f405415-stm32f407417-stm32f427437-and-stm32f429439-
+     * advanced-armbased-32bit-mcus-stmicroelectronics.pdf
+     * This tests register semantics, not a physical FIFO occupancy model. */
+    NikonEXState *ex = NIKON_EX(object_resolve_path("/machine/ex", NULL));
+    AddressSpace as;
+
+    qemu_system_reset(SHUTDOWN_CAUSE_HOST_QMP_SYSTEM_RESET);
+    address_space_init(&as, nikon_ex_memory(ex), "dma-fcr-fields");
+    for (unsigned c = 0; c < 2; c++) {
+        hwaddr bank = 0x40026000 + c * 0x400;
+
+        for (unsigned n = 0; n < 8; n++) {
+            hwaddr stream = bank + 0x10 + n * 0x18, fcr = stream + 20;
+
+            g_assert_cmphex(controller_read(&as, fcr), ==, 0x21);
+            controller_write(&as, fcr, 0x87);
+            g_assert_cmphex(controller_read(&as, fcr), ==, 0xa7);
+            controller_write(&as, stream + 4, 7);
+            controller_write(&as, stream, 1);
+            controller_write(&as, fcr, 0);
+            g_assert_cmphex(controller_read(&as, fcr), ==, 0x27);
+            controller_write(&as, fcr, 0xb8);
+            g_assert_cmphex(controller_read(&as, fcr), ==, 0xa7);
+            g_assert_cmphex(controller_read(&as, stream), ==, 1);
+            g_assert_cmpuint(controller_read(&as, stream + 4), ==, 7);
+            g_assert_cmphex(controller_read(&as, bank), ==, 0);
+            g_assert_cmphex(controller_read(&as, bank + 4), ==, 0);
+            for (unsigned bit = 6; bit <= 8; bit += 2) {
+                g_assert_cmpint(dma_write_result(&as, fcr, 1u << bit, 4),
+                                ==, MEMTX_ERROR);
+                g_assert_cmphex(controller_read(&as, fcr), ==, 0xa7);
+            }
+            for (unsigned size = 1; size <= 2; size++) {
+                g_assert_cmpint(dma_write_result(&as, fcr, 0x80, size),
+                                ==, MEMTX_ERROR);
+            }
+            g_assert_cmpint(dma_write_result(&as, fcr + 1, 0x80, 4),
+                            ==, MEMTX_ERROR);
+            controller_write(&as, stream, 0);
+            controller_write(&as, fcr, 0);
+            g_assert_cmphex(controller_read(&as, fcr), ==, 0x20);
+        }
+        controller_write(&as, 0x40023810, 1u << (21 + c));
+        controller_write(&as, 0x40023810, 0);
+        for (unsigned n = 0; n < 8; n++) {
+            g_assert_cmphex(controller_read(&as, bank + 0x24 + n * 0x18),
+                            ==, 0x21);
+        }
+    }
+    /* RM0090: memory-to-memory EN sets DMDIS in hardware. */
+    controller_write(&as, 0x20001000, 0x93);
+    controller_write(&as, 0x20002000, 0);
+    controller_write(&as, 0x40026414, 1);
+    controller_write(&as, 0x40026418, 0x20001000);
+    controller_write(&as, 0x4002641c, 0x20002000);
+    controller_write(&as, 0x40026410, 0x81);
+    g_assert_cmphex(controller_read(&as, 0x40026424), ==, 0x25);
+    g_assert_cmphex(controller_read(&as, 0x20002000), ==, 0x93);
+    qemu_system_reset(SHUTDOWN_CAUSE_HOST_QMP_SYSTEM_RESET);
+    address_space_destroy(&as);
+    drain_call_rcu();
+}
+
+static void dma_native_feie_transfer(void)
+{
+    NikonEXState *ex = NIKON_EX(object_resolve_path("/machine/ex", NULL));
+    ARMv7MState *armv7m = ARMV7M(object_resolve_path_component(OBJECT(ex),
+                                                             "armv7m"));
+    AddressSpace *cpu_as = cpu_get_address_space(CPU(armv7m->cpu), ARMASIdx_NS);
+    AddressSpace as;
+    const hwaddr bank = 0x40026400, stream = bank + 0x10;
+
+    qemu_system_reset(SHUTDOWN_CAUSE_HOST_QMP_SYSTEM_RESET);
+    address_space_init(&as, nikon_ex_memory(ex), "dma-native-feie-transfer");
+    /* NVIC's PPB belongs to ARMv7M's private CPU address space, rather than
+     * the external-memory root returned by nikon_ex_memory(). */
+    controller_write(cpu_as, 0xe000e104, 1u << (56 - 32));
+    controller_write(&as, 0x40013000, 0x249);
+    controller_write(&as, 0x40013004, 1);
+    controller_write(&as, stream + 4, 2);
+    controller_write(&as, stream + 8, 0x4001300c);
+    controller_write(&as, stream + 12, 0x20002000);
+    controller_write(&as, stream, 0x411);
+    /* Replay only the original 080437aa..080437d4 MMIO order. The unit
+     * executes no factory code and injects no completion/IRQ/guest state. */
+    controller_write(&as, stream, controller_read(&as, stream) | 0x16);
+    controller_write(&as, stream + 20,
+                     controller_read(&as, stream + 20) | 0x80);
+    controller_write(&as, stream, controller_read(&as, stream) | 1);
+    g_assert_cmphex(controller_read(&as, stream + 20), ==, 0xa1);
+    g_assert_cmpuint(controller_read(&as, stream + 4), ==, 2);
+    g_assert_cmphex(controller_read(&as, bank), ==, 0);
+    g_assert_false(object_property_get_bool(OBJECT(ex), "cpu-hard-irq",
+                                            &error_abort));
+    nikon_ex_spi_transfer(ex, 0, 0x31);
+    g_assert_cmpuint(controller_read(&as, stream + 4), ==, 1);
+    nikon_ex_spi_transfer(ex, 0, 0x32);
+    g_assert_cmpuint(controller_read(&as, stream + 4), ==, 0);
+    g_assert_cmphex(controller_read(&as, bank) & 0x3d, ==, 0x30);
+    g_assert_cmphex(controller_read(&as, 0x20002000) & 0xffff, ==, 0x3231);
+    g_assert_true(object_property_get_bool(OBJECT(ex), "cpu-hard-irq",
+                                           &error_abort));
+    /* FEIE cannot acknowledge or mask a genuine TC completion. */
+    controller_write(&as, stream + 20, 0x21);
+    g_assert_true(object_property_get_bool(OBJECT(ex), "cpu-hard-irq",
+                                           &error_abort));
+    controller_write(&as, bank + 8, 0x3d);
+    controller_write(cpu_as, 0xe000e284, 1u << (56 - 32));
+    g_assert_false(object_property_get_bool(OBJECT(ex), "cpu-hard-irq",
+                                            &error_abort));
     qemu_system_reset(SHUTDOWN_CAUSE_HOST_QMP_SYSTEM_RESET);
     address_space_destroy(&as);
     drain_call_rcu();
@@ -767,6 +894,8 @@ int main(int argc, char **argv)
     g_test_add_func("/nikon/ex/i2c-elapsed-boundaries", i2c_elapsed_boundaries);
     g_test_add_func("/nikon/ex/dma-write-protection", dma_write_protection);
     g_test_add_func("/nikon/ex/dma-protection-boundaries", dma_protection_boundaries);
+    g_test_add_func("/nikon/ex/dma-fcr-fields", dma_fcr_fields);
+    g_test_add_func("/nikon/ex/dma-native-feie-transfer", dma_native_feie_transfer);
     g_test_add_func("/nikon/ex/dma-protected-transfer", dma_protected_transfer);
     g_test_add_func("/nikon/ex/power-devices", power_devices);
     g_test_add_func("/nikon/ex/status-notification", status_notification);

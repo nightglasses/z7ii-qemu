@@ -158,7 +158,7 @@ static const struct {
 };
 
 /*
- * Original pool rows119832a8..119833e0 and selected output overrides;
+ * Original pool rows11983290..119833e0 and selected output overrides;
  * kind18 has its own grid region.
  * These are separate pool extents, not an enclosing DDR conversion class.
  */
@@ -167,6 +167,9 @@ static const struct {
     hwaddr base;
     uint64_t size;
 } z7ii_capture_pools[] = {
+    /* Default table11982938[15] -> row11983290. A distinct native pool,
+     * not extra kernel heap or an alias of display/capture storage. */
+    { "z7ii.capture-kind15", 0xcc700000, 0xf41d000 },
     { "z7ii.capture-kind16", 0x54900000, 0x8834000 },
     { "z7ii.capture-kind17", 0x5d134000, 0x3c000 },
     { "z7ii.capture-kind19", 0x5d1dc000, 0x144000 },
