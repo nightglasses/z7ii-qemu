@@ -91,6 +91,7 @@ foreach(path IN LISTS upstream)
      path STREQUAL "hw/Kconfig" OR path STREQUAL "hw/meson.build" OR
      path STREQUAL "tests/qtest/meson.build" OR
      path STREQUAL "tests/unit/meson.build" OR
+     path STREQUAL "hw/nvme/ctrl.c" OR path STREQUAL "hw/nvme/nvme.h" OR
      path STREQUAL "include/hw/core/cpu.h" OR
      path STREQUAL "accel/dummy-cpus.h" OR
      path STREQUAL "accel/dummy-cpus.c" OR
@@ -138,4 +139,5 @@ file(READ "${QEMU_UPSTREAM}/tests/unit/meson.build" content)
 native_file("tests/unit/meson.build" "${content}\nsubdir('nikon')\n")
 include(cmake/rx.cmake)
 include(cmake/system.cmake)
+include(cmake/nvme.cmake)
 include(cmake/qtest.cmake)

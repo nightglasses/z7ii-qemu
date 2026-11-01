@@ -163,8 +163,11 @@ static void storage_intx(void *opaque, int pin, int level)
     bool prior = s->intx != 0;
 
     s->intx = (s->intx & ~(1u << pin)) | (!!level << pin);
-    if (s->state == 0x11 && prior != (s->intx != 0)) {
-        s->pending24 |= 1u << (s->intx ? 28 : 29);
+    if (s->state == 0x11 && !prior && s->intx) {
+        /* 10517a18 dispatches bit28 as completion and bit29 as abort. A
+         * consumed CQ's ordinary INTx release is not a hardware abort.
+         */
+        s->pending24 |= 1u << 28;
     }
     storage_irqs(s);
 }
