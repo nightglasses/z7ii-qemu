@@ -1342,14 +1342,27 @@ static bool nikon_transfer_rectangle_fields(const uint32_t *words,
                                             uint64_t operands);
 
 static bool nikon_transfer_native_images_candidate(const uint32_t *setup,
-                                                   size_t setup_bytes)
+                                                   size_t setup_bytes,
+                                                   const uint32_t *draw,
+                                                   size_t draw_bytes)
 {
-    return (setup_bytes >= 96 && le32_to_cpu(setup[0]) == 0x00691004 &&
+    return (setup_bytes >= 41 * 4 && draw_bytes >= 46 * 4 &&
+            le32_to_cpu(setup[0]) == 0x00691004 &&
             le32_to_cpu(setup[22]) == 0x00653004 &&
-            le32_to_cpu(setup[23]) == 0x100) ||
-           (setup_bytes >= 48 && le32_to_cpu(setup[0]) == 0x0041f046 &&
+            le32_to_cpu(setup[23]) == 0x100 &&
+            le32_to_cpu(setup[35]) == 0x01000100 &&
+            le32_to_cpu(setup[40]) == 0x01000100 &&
+            le32_to_cpu(draw[11]) == 0x01000100 &&
+            le32_to_cpu(draw[32]) == 0x010c7046 &&
+            le32_to_cpu(draw[45]) == 0x001b0000) ||
+           (setup_bytes >= 29 * 4 && draw_bytes >= 14 * 4 &&
+            le32_to_cpu(setup[0]) == 0x0041f046 &&
             le32_to_cpu(setup[10]) == 0x00653004 &&
-            le32_to_cpu(setup[11]) == 0x100);
+            le32_to_cpu(setup[11]) == 0x100 &&
+            le32_to_cpu(setup[23]) == 0x01000100 &&
+            le32_to_cpu(setup[28]) == 0x01000100 &&
+            le32_to_cpu(draw[0]) == 0x010c7046 &&
+            le32_to_cpu(draw[13]) == 0x001b0000);
 }
 
 static bool nikon_transfer_native_images(NikonTransferState *s, uint8_t *overlay,
@@ -1518,7 +1531,8 @@ static bool nikon_transfer_image_parse(NikonTransferState *s, uint8_t *overlay,
 
     setup = g_bytes_get_data(s->stream[0].bytes, &setup_bytes);
     draw = g_bytes_get_data(s->stream[1].bytes, &draw_bytes);
-    if (nikon_transfer_native_images_candidate(setup, setup_bytes)) {
+    if (nikon_transfer_native_images_candidate(setup, setup_bytes,
+                                               draw, draw_bytes)) {
         return nikon_transfer_native_images(s, overlay, output, reason);
     }
     initial = setup_bytes == 224 &&
@@ -2334,7 +2348,8 @@ static bool nikon_transfer_stream_parse(NikonTransferState *s,
     const uint32_t *draw = g_bytes_get_data(s->stream[1].bytes, &draw_bytes);
     const uint32_t *setup = g_bytes_get_data(s->stream[0].bytes, &setup_bytes);
 
-    if (nikon_transfer_native_images_candidate(setup, setup_bytes)) {
+    if (nikon_transfer_native_images_candidate(setup, setup_bytes,
+                                               draw, draw_bytes)) {
         program->kind = TRANSFER_PROGRAM_IMAGE_FILL;
         return nikon_transfer_image_parse(s, NULL, NULL, reason);
     }
