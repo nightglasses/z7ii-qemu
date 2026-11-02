@@ -9,6 +9,7 @@
 #include "qemu/thread.h"
 #include "qemu/timer.h"
 #include "qemu/aio-wait.h"
+#include "qemu/rcu.h"
 #include "block/thread-pool.h"
 #include "hw/core/irq.h"
 #include "hw/core/qdev-properties.h"
@@ -514,6 +515,8 @@ static void fixture_free(PairedFixture *f)
     }
     qemu_free_irq(f->irq);
     memory_region_del_subregion(get_system_memory(), &f->ram);
+    /* Ownerless regions must outlive every retired FlatView that uses them. */
+    drain_call_rcu();
     object_unparent(OBJECT(&f->ram));
     g_assert_cmpint(unlink(f->calibration), ==, 0);
     g_free(f->calibration);
@@ -1818,6 +1821,7 @@ static void test_raw_backing_alias(void)
     g_assert_true(runtime_has(f, "bank0 request=2 active=0"));
     g_assert_true(runtime_has(f, "inflight=0"));
     memory_region_del_subregion(get_system_memory(), &view);
+    drain_call_rcu();
     object_unparent(OBJECT(&view));
     fixture_free(f);
 }
@@ -2003,6 +2007,7 @@ static void test_grid_memory(gconstpointer opaque)
         g_assert_cmpuint(counter(f, "rejected"), >, 0);
     }
     memory_region_del_subregion(get_system_memory(), &view);
+    drain_call_rcu();
     object_unparent(OBJECT(&view));
     fixture_free(f);
 }

@@ -473,8 +473,8 @@ static void test_resource57_record7(void)
     memory_quit(&t);
 }
 
-static void prefix_copy(QTestState *qts, uint32_t source,
-                        uint32_t destination, uint32_t length)
+static void prefix_copy_start(QTestState *qts, uint32_t source,
+                              uint32_t destination, uint32_t length)
 {
     qtest_writel(qts, 0x04251000, 0x10000000);
     qtest_writel(qts, 0x04251010, length - 1);
@@ -485,6 +485,12 @@ static void prefix_copy(QTestState *qts, uint32_t source,
     qtest_writel(qts, 0x04251024, 0);
     qtest_writel(qts, 0x04251028, 0x9000);
     qtest_writel(qts, 0x04251028, 0x11109003);
+}
+
+static void prefix_copy(QTestState *qts, uint32_t source,
+                        uint32_t destination, uint32_t length)
+{
+    prefix_copy_start(qts, source, destination, length);
     qtest_clock_step(qts, (uint64_t)length * 1000000000 / 48000000 + 1);
 }
 
@@ -690,12 +696,14 @@ static void test_capture_pools(void)
         { 0xdcb3c800, 0x1c4000, 4 },
         { 0xdbb1d000, 0x339800, 5 },
         { 0xbe5d2200, 0x182200, 3 },
+        /* Default row11983290: ends exactly at independent kind28. */
+        { 0xcc700000, 0x34c800, 0x4a },
     };
     static const uint32_t holes[] = {
         0x548fffff, 0x5d4b8c00,
         0xaf8d3fff, 0xafa43800, 0xafc3dbff, 0xafc9dc00,
         0x5f9143ff, 0x5f94a400, 0xdec7fbff, 0xe2616400,
-        0xdbb1cfff, 0xdd24c800, 0xbe5d21ff, 0xbea58800,
+        0xcc6fffff, 0xdd24c800, 0xbe5d21ff, 0xbea58800,
     };
     const uint32_t source = 0xb1804000;
     uint8_t expected[259], actual[259];
@@ -721,7 +729,20 @@ static void test_capture_pools(void)
             g_assert_cmpmem(actual, sizeof(actual), expected, sizeof(expected));
         }
     }
+    /* The gap before kind15 rejects the entire DMA, including its valid tail. */
+    qtest_writel(t.qts, 0x04251030, 0);
+    prefix_copy(t.qts, source, 0xcc6ffffc, 8);
+    g_assert_cmphex(qtest_readl(t.qts, 0x04251030), ==, 1);
+    g_assert_cmphex(qtest_readl(t.qts, 0x04251010), ==, 7);
+    g_assert_cmphex(qtest_readl(t.qts, 0x04251014), ==, source);
+    g_assert_cmphex(qtest_readl(t.qts, 0x04251018), ==, 0xcc6ffffc);
+
+    /* Reset cancels queued work before it can overwrite the retained first tag. */
+    qtest_writel(t.qts, 0x04251030, 0);
+    prefix_copy_start(t.qts, source, 0xcc700000, 8);
     qtest_system_reset(t.qts);
+    qtest_clock_step(t.qts, 1000);
+    g_assert_cmphex(qtest_readl(t.qts, 0x04251030), ==, 0);
     for (unsigned p = 0; p < ARRAY_SIZE(pools); p++) {
         for (unsigned slot = 0; slot < pools[p].count; slot++) {
             uint32_t base = pools[p].base + slot * pools[p].unit;
