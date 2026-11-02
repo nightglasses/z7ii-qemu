@@ -22,6 +22,12 @@ DeviceState *nikon_sla_bridge(DeviceState *domain);
 /* Loaded C1.70 SLA software-domain profile; these are not board reset facts. */
 #define NIKON_SLA_ROM_BASE 0x10020000ULL
 #define NIKON_SLA_ROM_SIZE 0x86cd40ULL
+/* Bounded C1.70 bench-image append contract, not physical NOR capacity.
+ * Only the bytes present in the supplied component are mapped. */
+#define NIKON_SLA_RESEARCH_APPEND_OFFSET 0x86d000ULL
+#define NIKON_SLA_RESEARCH_APPEND_LIMIT 0x1000ULL
+#define NIKON_SLA_RESEARCH_IMAGE_MAX \
+    (NIKON_SLA_RESEARCH_APPEND_OFFSET + NIKON_SLA_RESEARCH_APPEND_LIMIT)
 #define NIKON_SLA_ENTRY 0x1002bcd4ULL
 #define NIKON_SLA_COPY1_BASE 0xc1000000ULL
 #define NIKON_SLA_COPY1_SIZE 0x17d60ULL
