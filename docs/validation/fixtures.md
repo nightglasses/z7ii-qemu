@@ -25,7 +25,10 @@ same lifetime rule. No device behavior or guest-ready state changes.
 Local native validation passes all 33 gatework, 5 gateplane, 68 paired and 9
 gridflow cases. The first three use the hosted failure's allocator perturbation
 values, respectively 212, 168 and 26. This local result is on macOS; it does not
-claim a Linux post-fix result before CI completes.
+claim a physical-camera result. The subsequent hosted run at
+`76f95fd799c348e1715f6a6441f8ae585b248169` contains the fixed fixtures; its PR
+head's hosted run passes them and the corrected memory case: 56 of 57 test
+executables pass, with only the CMOS batch exceeding its aggregate budget.
 
 ## Capture pool boundaries
 
@@ -45,6 +48,11 @@ board's mapped ranges.
 CMOS now registers 153 cases. The hosted 60-second batch expired after 44 PASS;
 the next `group/commit-input` case completes independently and passes locally.
 The historical [Darwin timing record](../build.md#darwin-qtest-wake-ownership)
-already needed a 480-second budget for 107 cases. The CMOS batch alone now uses
-that explicit budget; other fixtures retain 60 seconds. No case is skipped,
+already needed a 480-second budget for 107 cases. The subsequent 153-case Linux
+run reaches 126 PASS before 480 seconds; its completed cases account for
+474.4 seconds, including
+61.77 seconds in `paired/online/boundaries`. This is cumulative successful work,
+not an observed deadlock. The current CMOS-only budget is 900 seconds, with
+40 minutes for checkout, native compilation and the complete hosted job;
+other fixtures retain 60 seconds. No case is skipped,
 and failed assertions, child termination and TAP completeness remain errors.
