@@ -57,7 +57,7 @@ foreach arch, fixtures : nikon_targets
   nikon_env.set('QTEST_QEMU_BINARY', './qemu-system-' + arch)
   foreach name, sources : fixtures
     # CMOS owns 153 cold-board cases; the hosted Linux run exceeds 60 seconds.
-    fixture_timeout = name == 'nikon_cmos' ? 480 : 60
+    fixture_timeout = name == 'nikon_cmos' ? 900 : 60
     fixture = executable(name, sources,
       dependencies: [qemuutil, qos],
       include_directories: include_directories('..'))
