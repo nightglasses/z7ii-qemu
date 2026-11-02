@@ -413,11 +413,15 @@ NikonDisplayPipeline *nikon_display_pipeline_create(NikonDisplayBackendType type
 
     switch (type) {
     case NIKON_DISPLAY_BACKEND_METAL:
+#if defined(__APPLE__)
         if (nikon_metal_is_supported() && nikon_display_metal_get_ops()) {
             p->ops = nikon_display_metal_get_ops();
         } else {
             p->ops = &cpu_display_ops;
         }
+#else
+        p->ops = &cpu_display_ops;
+#endif
         break;
     case NIKON_DISPLAY_BACKEND_D3D12:
         p->ops = &d3d12_display_stub_ops;
