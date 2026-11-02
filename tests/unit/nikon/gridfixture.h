@@ -4,6 +4,8 @@
 #ifndef TEST_NIKON_GRID_FIXTURE_H
 #define TEST_NIKON_GRID_FIXTURE_H
 
+#include "qemu/rcu.h"
+
 #define BASE 0x10000000
 #define ALIAS 0x20000000
 #define READONLY 0x30000000
@@ -274,6 +276,8 @@ static void cleanup(Fixture *f)
     memory_region_del_subregion(get_system_memory(), &f->readonly);
     memory_region_del_subregion(get_system_memory(), &f->alias);
     memory_region_del_subregion(get_system_memory(), &f->ram);
+    /* FlatView retirement may still access these ownerless embedded regions. */
+    drain_call_rcu();
     object_unparent(OBJECT(&f->readonly));
     object_unparent(OBJECT(&f->alias));
     object_unparent(OBJECT(&f->ram));

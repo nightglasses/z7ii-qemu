@@ -59,6 +59,9 @@ make check MTESTARGS='nikon --test-args="-p /arm/nikon/transfer/planes"'
 
 `MTESTARGS` is passed verbatim by recursive Make to QEMU's officially generated test targets; invoking `make check` without parameters runs the entire Nikon test suite. The physical build of the initial source-view migration is executed by a single builder; matching source code does not substitute for a completed native build.
 
+Temporary MemoryRegion teardown, capture-pool boundaries and the CMOS batch's
+explicit time budget are described in the [native fixture contract](validation/fixtures.md).
+
 ### Darwin qtest wake ownership
 
 Darwin qtest uses one `QemuSemaphore` per DUMMY vCPU to preserve the

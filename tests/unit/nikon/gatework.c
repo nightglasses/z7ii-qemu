@@ -16,6 +16,7 @@
 #include "system/cpu-timers.h"
 #include "qemu/main-loop.h"
 #include "qemu/thread.h"
+#include "qemu/rcu.h"
 #include "block/thread-pool.h"
 #include "system/runstate.h"
 
@@ -241,6 +242,9 @@ static void cleanup(Fixture *f)
 {
     memory_region_del_subregion(get_system_memory(), &f->alias);
     memory_region_del_subregion(get_system_memory(), &f->ram);
+    /* Ownerless regions are not refcounted by FlatView. Retire the old maps
+     * before destroying their embedded storage. */
+    drain_call_rcu();
     object_unparent(OBJECT(&f->alias));
     object_unparent(OBJECT(&f->ram));
     g_free(f);
@@ -587,6 +591,7 @@ static void test_future_source_memory(void)
         }
         nikon_gate_work_free(plan);
         memory_region_del_subregion(get_system_memory(), &future);
+        drain_call_rcu();
         object_unparent(OBJECT(&future));
         cleanup(f);
     }
@@ -847,6 +852,11 @@ static void gate_cleanup(GateFixture *g)
     if (qdev_is_realized(g->dev)) {
         qdev_unrealize(g->dev);
     }
+    memory_region_del_subregion(get_system_memory(),
+        sysbus_mmio_get_region(SYS_BUS_DEVICE(g->dev), 0));
+    memory_region_del_subregion(get_system_memory(),
+        sysbus_mmio_get_region(SYS_BUS_DEVICE(g->dev), 2));
+    drain_call_rcu();
     object_unparent(OBJECT(g->dev));
     object_unref(OBJECT(g->dev));
     qemu_free_irq(g->irq);
