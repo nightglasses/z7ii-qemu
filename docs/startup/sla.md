@@ -9,6 +9,17 @@ MemoryRegion root, AddressSpace, CPUs and peripherals; `nikonsla` is its
 standalone board wrapper. This profile is a loaded software domain rather
 than a cold hardware reset claim.
 
+Research images may retain that complete baseline and append supplied bytes up
+to payload length `0x86e000`. This finite file contract covers append offset
+`0x86d000` plus at most `0x1000` bytes of research code; it is not a claim about
+physical NOR capacity or updater acceptance. The NOR region maps exactly the
+supplied payload length, including caller-provided gap bytes. It does not add
+erased data, RAM, aliases, COPY results, page-table entries or ready state.
+Shorter-than-baseline and larger-than-bound CRC-valid containers are rejected.
+Two native fixtures check stock/current/maximum image bytes, DMA rejection at
+the first missing byte, unchanged destination on that failure, and both invalid
+length boundaries.
+
 The default input remains strict: external NOR `[0x10000000,0x10020000)` is
 unmapped. An explicit `-machine nikonsla,boot-prefix=erased` selects a
 counterfactual reset input of128KiB erased `0xff` bytes. Alternatively,

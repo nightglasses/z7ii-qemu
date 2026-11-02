@@ -261,8 +261,11 @@ static void sla_domain_realize(DeviceState *dev, Error **errp)
     };
 
     size = g_bytes_get_size(s->payload);
-    if (size != NIKON_SLA_ROM_SIZE) {
-        error_setg(errp, "SLA requires the complete C1.70 component");
+    if (size < NIKON_SLA_ROM_SIZE || size > NIKON_SLA_RESEARCH_IMAGE_MAX) {
+        error_setg(errp, "SLA requires a complete C1.70 component within the "
+                   "bounded research image extent [0x%" PRIx64 ",0x%" PRIx64 "]",
+                   (uint64_t)NIKON_SLA_ROM_SIZE,
+                   (uint64_t)NIKON_SLA_RESEARCH_IMAGE_MAX);
         return;
     }
     s->boot_prefix_size = s->boot_prefix ? g_bytes_get_size(s->boot_prefix) : 0;

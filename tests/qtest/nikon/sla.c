@@ -34,14 +34,14 @@ static uint16_t fixture_crc(const uint8_t *data, size_t size)
     return crc;
 }
 
-static char *fixture_container(void)
+static char *fixture_container_size(size_t sla_size)
 {
     static const char *const names[] = {
         "ex1840_013000.bi", "_tpj01_v140.bin", "eg1840_mas_01700",
         "vr1840_010100.bi", "eg1840_sla_01700",
     };
     const size_t header = 208;
-    size_t total = header + 4 * 6 + NIKON_SLA_ROM_SIZE + 2 + 16;
+    size_t total = header + 4 * 6 + sla_size + 2 + 16;
     g_autofree uint8_t *data = g_malloc0(total);
     size_t offset = header;
     char *path = NULL;
@@ -52,7 +52,7 @@ static char *fixture_container(void)
     stl_be_p(data + 32, ARRAY_SIZE(names));
     stl_be_p(data + 36, header);
     for (i = 0; i < ARRAY_SIZE(names); i++) {
-        size_t length = i == 4 ? NIKON_SLA_ROM_SIZE : 4;
+        size_t length = i == 4 ? sla_size : 4;
         uint8_t *entry = data + 48 + i * 32;
 
         memcpy(entry, names[i], strlen(names[i]));
@@ -77,6 +77,13 @@ static char *fixture_container(void)
             }
             stl_le_p(data + offset + 0x83c4d4, 0xabcdef01);
             stl_le_p(data + offset + 0x854240, 0x76543210);
+            if (length >= NIKON_SLA_ROM_SIZE) {
+                data[offset + NIKON_SLA_ROM_SIZE - 1] = 0x5a;
+            }
+            for (size_t byte = NIKON_SLA_ROM_SIZE; byte < length; byte++) {
+                data[offset + byte] = byte < NIKON_SLA_RESEARCH_APPEND_OFFSET ?
+                                      0xff : 0x39 ^ byte ^ (byte >> 8);
+            }
             data[offset + length - 1] = 0x5a;
         }
         stw_be_p(data + offset + length, fixture_crc(data + offset, length));
@@ -88,6 +95,11 @@ static char *fixture_container(void)
     close(fd);
     g_assert_true(g_file_set_contents(path, (const char *)data, total, NULL));
     return path;
+}
+
+static char *fixture_container(void)
+{
+    return fixture_container_size(NIKON_SLA_ROM_SIZE);
 }
 
 static void test_loaded_domain(void)
@@ -543,6 +555,83 @@ static void prefix_copy(QTestState *qts, uint32_t source, uint32_t destination,
     qtest_writel(qts, copy + 0x28, 0x9000);
     qtest_writel(qts, copy + 0x28, 0x11109003);
     qtest_clock_step(qts, (uint64_t)length * 1000000000 / 48000000 + 1);
+}
+
+static void test_research_image_extent(void)
+{
+    const size_t lengths[] = {
+        NIKON_SLA_ROM_SIZE,
+        8836412, /* Current C1.70 bench image, including supplied FF gap. */
+        NIKON_SLA_RESEARCH_IMAGE_MAX,
+    };
+    const size_t payload_offset = 208 + 4 * 6;
+    const uint32_t destination = NIKON_SLA_LOCAL_CODE_BASE + 0x1000;
+
+    for (unsigned i = 0; i < ARRAY_SIZE(lengths); i++) {
+        g_autofree char *path = fixture_container_size(lengths[i]);
+        g_autofree char *data = NULL;
+        gsize size;
+        const uint8_t *payload;
+        const uint32_t end = NIKON_SLA_ROM_BASE + lengths[i];
+        QTestState *qts = qtest_initf("-machine nikonsla -smp 2 -bios %s", path);
+
+        g_assert_true(g_file_get_contents(path, &data, &size, NULL));
+        payload = (const uint8_t *)data + payload_offset;
+        g_assert_cmphex(qtest_readl(qts, NIKON_SLA_ROM_BASE), ==, 0x51a00004);
+        g_assert_cmphex(qtest_readb(qts, NIKON_SLA_ROM_BASE +
+                                   NIKON_SLA_ROM_SIZE - 1), ==, 0x5a);
+        g_assert_cmphex(qtest_readb(qts, end - 1), ==, 0x5a);
+        if (lengths[i] > NIKON_SLA_ROM_SIZE) {
+            const size_t extra = lengths[i] - NIKON_SLA_ROM_SIZE;
+            g_autofree uint8_t *actual = g_malloc(extra);
+
+            /* The alignment gap and append are file bytes, not a zero-filled
+             * extension or a host-provided ready/program image. */
+            qtest_memread(qts, NIKON_SLA_ROM_BASE + NIKON_SLA_ROM_SIZE,
+                          actual, extra);
+            g_assert_cmpmem(actual, extra, payload + NIKON_SLA_ROM_SIZE, extra);
+        }
+
+        prefix_copy(qts, end - 4, destination, 4);
+        g_assert_cmphex(qtest_readl(qts, 0x04251030), ==, 8);
+        g_assert_cmphex(qtest_readl(qts, destination), ==,
+                        (uint32_t)ldl_le_p(payload + lengths[i] - 4));
+        qtest_writel(qts, 0x04251030, 0);
+        qtest_writel(qts, destination, 0x13579bdf);
+        /* The component CRC and page-rounded ROM backing are not visible.
+         * A real private-AS DMA read at the first missing byte must fail. */
+        prefix_copy(qts, end, destination, 4);
+        g_assert_cmphex(qtest_readl(qts, 0x04251030), ==, 1);
+        g_assert_cmphex(qtest_readl(qts, 0x04251010), ==, 3);
+        g_assert_cmphex(qtest_readl(qts, destination), ==, 0x13579bdf);
+        qtest_quit(qts);
+        g_assert_cmpint(unlink(path), ==, 0);
+    }
+}
+
+static void test_research_image_rejected_extent(void)
+{
+    const size_t lengths[] = {
+        NIKON_SLA_ROM_SIZE - 1,
+        NIKON_SLA_RESEARCH_IMAGE_MAX + 1,
+    };
+
+    for (unsigned i = 0; i < ARRAY_SIZE(lengths); i++) {
+        g_autofree char *path = fixture_container_size(lengths[i]);
+        g_autofree char *error_output = NULL;
+        const char *argv[] = { qtest_qemu_binary(NULL), "-machine", "nikonsla",
+                         "-bios", path, "-display", "none", "-monitor", "none",
+                         "-serial", "none", "-S", NULL };
+        int status;
+
+        /* These are CRC-valid containers: rejection must come from the
+         * component extent contract, not a truncated/corrupt bundle. */
+        g_assert_true(g_spawn_sync(NULL, (char **)argv, NULL, G_SPAWN_DEFAULT, NULL, NULL,
+                                   NULL, &error_output, &status, NULL));
+        g_assert_false(g_spawn_check_exit_status(status, NULL));
+        g_assert_nonnull(strstr(error_output, "bounded research image extent"));
+        g_assert_cmpint(unlink(path), ==, 0);
+    }
 }
 
 static void test_external_input(void)
@@ -1039,6 +1128,9 @@ int main(int argc, char **argv)
     g_test_init(&argc, &argv, NULL);
     qtest_add_func("/nikon/sla/external-input", test_external_input);
     qtest_add_func("/nikon/sla/loaded-domain", test_loaded_domain);
+    qtest_add_func("/nikon/sla/research-image-extent", test_research_image_extent);
+    qtest_add_func("/nikon/sla/research-image-rejected-extent",
+                   test_research_image_rejected_extent);
     qtest_add_func("/nikon/sla/startup-observation", test_startup_observation);
     qtest_add_func("/nikon/sla/copy-private", test_copy_private);
     qtest_add_func("/nikon/sla/external-interrupts", test_external_interrupts);
