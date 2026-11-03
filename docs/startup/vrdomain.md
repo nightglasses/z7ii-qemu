@@ -143,7 +143,7 @@ wait is traced to a specific VR result needed by the mainline, or when recovered
 resident bytes make the existing stop actionable. Do not add a ready peer or
 no-op ROM hooks to the default camera to make it appear complete.
 
-The [subsequent mainline investigation](../runtime/ptp.md) identifies F091 as a
+The [subsequent mainline investigation](../ptp/boundary.md) identifies F091 as a
 PTPCMD parameter subcommand. Its task waits before command reception, and its
 session/F001 service-mode gates are closed. A separate firmware readiness call
 at MAS VA `0x1062f120` requires event bit `0x80000000` and pending slot 3; the

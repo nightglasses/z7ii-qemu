@@ -61,6 +61,7 @@ export default defineConfig({
         { text: 'Startup', link: '/startup/first' },
         { text: 'Devices', link: '/devices/gate/protocol' },
         { text: 'Runtime', link: '/runtime/policy' },
+        { text: 'PTP', link: '/ptp/index' },
         { text: 'Inputs', link: '/inputs/nor/descriptor' },
         { text: 'Refmap', link: '/refmap/README' },
         { text: 'Validation', link: '/validation/budgets' },
@@ -205,9 +206,9 @@ export default defineConfig({
               { text: 'Image Sampling', link: '/devices/transfer/image' },
               { text: 'Repeated Path Clipping', link: '/devices/transfer/clip' },
               { text: 'SRC_OVER Composition', link: '/devices/transfer/over' },
-              { text: 'RGBA-to-YUV Conversion', link: '/devices/transfer/conversion' },
               { text: 'RGBA Layout Transfer', link: '/devices/transfer/copy' },
               { text: 'Native Image-Memory Initialization', link: '/devices/transfer/initialize' },
+              { text: 'RGBA-to-YUV Conversion', link: '/devices/transfer/conversion' },
               { text: 'Lanes Controller', link: '/devices/lanes/protocol' },
             ]
           },
@@ -300,6 +301,27 @@ export default defineConfig({
             ]
           }
         ],
+        '/ptp/': [
+          {
+            text: 'Physical PTP Access',
+            collapsed: false,
+            items: [
+              { text: 'Access Surface Overview', link: '/ptp/index' },
+              { text: 'Recipes', link: '/ptp/recipes' },
+              { text: 'Operations', link: '/ptp/operations' },
+              { text: 'Dispatch Tables', link: '/ptp/dispatch' },
+              { text: 'Services', link: '/ptp/services' },
+              { text: 'Memory & Guard', link: '/ptp/memory' },
+              { text: 'Objects & Descriptors', link: '/ptp/objects' },
+              { text: 'Vendor Properties (259)', link: '/ptp/properties' },
+              { text: 'F091 Command Boundary', link: '/ptp/boundary' },
+              { text: 'Physical Camera Baseline', link: '/ptp/physical' },
+              { text: 'Physical Memory & NVRAM Captures', link: '/ptp/physicalmemory' },
+              { text: 'Writing a Client', link: '/ptp/client' },
+              { text: 'Update Key Recovery', link: '/ptp/recovery' },
+            ]
+          },
+        ],
         '/runtime/': [
           {
             text: 'Battery & Authentication',
@@ -366,10 +388,6 @@ export default defineConfig({
               { text: 'Internal Transport & SPI4', link: '/runtime/transport' },
               { text: 'Private Address Class & Ring', link: '/runtime/address' },
               { text: 'Shared Sending Ring', link: '/runtime/ring' },
-              { text: 'PTP Command Boundary (F091)', link: '/runtime/ptp' },
-              { text: 'Physical Camera Evidence', link: '/runtime/physical' },
-              { text: 'Nikon Vendor Properties (259)', link: '/runtime/ptp_vendor_properties' },
-              { text: 'Physical RAM & NVRAM Ground Truth', link: '/runtime/physical_ram_nvram' },
               { text: 'TL4 Coprocessor Startup', link: '/runtime/coprocessor' },
               { text: 'Private EX Composition', link: '/runtime/ex' },
               { text: 'EX Analog Input Contract', link: '/runtime/analog' },
@@ -451,6 +469,7 @@ export default defineConfig({
               { text: 'Firmware Startup Frontier', link: '/validation/frontier' },
               { text: 'Full-resolution Color and Refresh', link: '/validation/color' },
               { text: 'Capture service and cold-neutral input', link: '/validation/capture' },
+              { text: 'Native Fixture Lifetime', link: '/validation/fixtures' },
               { text: 'Graphics publication and timing qualification', link: '/validation/graphics' },
               { text: 'Battery and external-input startup profiles', link: '/validation/inputprofiles' },
               { text: 'EX report publication and host commands', link: '/validation/exreports' },
@@ -464,7 +483,6 @@ export default defineConfig({
               { text: 'Controller & Input Layers', link: '/validation/layers' },
               { text: 'Reset, Timer & Analog Runtime', link: '/validation/runtime' },
               { text: 'Memory Pressure Tests', link: '/validation/pressure' },
-              { text: 'Native Fixture Lifetime', link: '/validation/fixtures' },
             ]
           }
         ],

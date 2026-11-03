@@ -492,7 +492,7 @@ in the unentered GUI producer. Receipts: `run startgate/`.
 
 ### F091 is a PTP input, not a demonstrated boot sender {#f091-is-a-ptp-input-not-a-demonstrated-boot-sender}
 
-The [F091/PTP investigation](../runtime/ptp.md) resolves the upstream chain:
+The [F091/PTP investigation](../ptp/boundary.md) resolves the upstream chain:
 PTPCMD validates the outer operation through `10463e8e` and the `119e1e74`
 table, then validates its subcommand through `104c6b14`. On success,
 `10463f88 -> 10478faa -> 104c6b9c -> 104c6a92` selects execution handler

@@ -153,7 +153,7 @@ VA`b7f6a0fc`, owner VA`b1cf7a0c`, while retaining configuration VA`b7f54400`.
 The preserved-record diagnostic completes117 paired jobs in16.16 host seconds;
 the retargeted-input window takes an AF data abort after59 jobs at13.91 seconds
 with FIFO60/60. These validate loader reuse, not stable GUI operation. The
-[capture bounds](../../runtime/physical_ram_nvram.md#usable-comparisons-and-unresolved-bindings)
+[capture bounds](../../ptp/physicalmemory.md#usable-comparisons-and-unresolved-bindings)
 and [runtime receipt](/evidence/runtime/grid.json) retain the separate limits.
 
 ## TEMP admission record

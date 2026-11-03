@@ -2,7 +2,7 @@
 
 The archived Nikon Z 7II baseline reports `V1.60` and records USB capabilities,
 property descriptors, preview bytes and service responses. It is separate from
-the C1.70 source/execution target in [PTP command boundary](ptp.md): compatible
+the C1.70 source/execution target in [PTP command boundary](boundary.md): compatible
 addresses, internal layouts and numerical algorithms have not been established.
 
 All observations below were gathered from an attached physical Nikon Z 7II
@@ -85,7 +85,7 @@ to their own source and native contracts.
 
 Opcodes `0x94fd`, `0x94fe`, and `0x94ff` are not advertised in `GetDeviceInfo`,
 but are dispatched by the MAS table at VA `0x119E1E74` as described in
-[PTP command boundary](ptp.md).
+[PTP command boundary](boundary.md).
 
 The historical response report below records admission before/after `F001`.
 The source function/address labels belong to software analysis; the capture
@@ -93,7 +93,7 @@ does not establish their V1.60 identity or directly observe execution at them.
 
 The observed response sequence is consistent with a service-admission gate.
 The runtime-memory capture does not confirm the previously proposed flag cell
-or predicate pointer; see the [byte-level correction](physical_ram_nvram.md#runtime-range-bytes).
+or predicate pointer; see the [byte-level correction](physicalmemory.md#runtime-range-bytes).
 No direct RAM write or particular internal handler execution follows solely
 from a successful PTP response.
 
@@ -115,7 +115,7 @@ capability profile; other rows remain historical reported observations.
 | `0x94FD` | `0xF165` | Active (`1`) | `0x2001` (OK) | `0x2001` | Reported successful response; bootstrap effects not observed |
 | `0x94FD` | `0xF002` | Active (`1`) | `0x2001` (OK) | `0x2001` | Reported lock response; internal flag binding unverified |
 
-The report can be compared with the source hypotheses in [PTP command boundary](ptp.md):
+The report can be compared with the source hypotheses in [PTP command boundary](boundary.md):
 
 * The software analysis describes outer envelopes and service rows; response
   captures alone do not verify every dispatch path.
@@ -131,7 +131,7 @@ While standard `GetDeviceInfo` reports only 21 general properties, vendor opcode
 * Raw inventory binary: [`payload_90ca.bin`](/evidence/physical/payload_90ca.bin) (522 bytes, 259 `u16` codes);
 * Range: `0xD016` to `0xD314`;
 * Full dump: [`vendor_properties_259.json`](/evidence/physical/vendor_properties_259.json), recording data types, advertised access flags, default values and current values;
-* Annotated lookup registry: [Nikon Vendor Device Properties Inventory](ptp_vendor_properties.md), separating captured descriptor fields from editorial lookup names and unverified menu interpretations.
+* Annotated lookup registry: [Nikon Vendor Device Properties Inventory](properties.md), separating captured descriptor fields from editorial lookup names and unverified menu interpretations.
 
 ## Exhaustive F0 service table mapping (0xF000..0xF200)
 
@@ -163,7 +163,7 @@ The archived manifest lacks response codes and complete block extents:
 * **Other service payloads**: `AUDIO` and serial text signatures; battery/thermal/OTP interpretations remain unverified, and the F03A capture is entirely erased bytes;
 * **Reported SDRAM capture (`0x90C0`)**: object metadata and a recovered thumbnail, without archived full RAW/JPEG objects or proof of every pipeline stage.
 
-See [Physical memory and NVRAM capture bounds](physical_ram_nvram.md)
+See [Physical memory and NVRAM capture bounds](physicalmemory.md)
 for exact byte observations, corrected interpretations and input limitations.
 
 ## Receipts and verification tools
