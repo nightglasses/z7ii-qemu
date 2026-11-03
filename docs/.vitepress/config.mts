@@ -61,6 +61,7 @@ export default defineConfig({
         { text: 'Startup', link: '/startup/first' },
         { text: 'Devices', link: '/devices/gate/protocol' },
         { text: 'Runtime', link: '/runtime/policy' },
+        { text: 'PTP', link: '/ptp/index' },
         { text: 'Inputs', link: '/inputs/nor/descriptor' },
         { text: 'Refmap', link: '/refmap/README' },
         { text: 'Validation', link: '/validation/budgets' },
@@ -166,6 +167,7 @@ export default defineConfig({
               { text: 'MEMC Memory Controller', link: '/devices/memc/protocol' },
               { text: 'Dual-Bank SDI / DDR', link: '/devices/sdi/protocol' },
               { text: 'SDI Runtime Contracts', link: '/devices/sdi/runtime' },
+              { text: 'SDI Mode-Register Reads', link: '/devices/sdi' },
               { text: 'Clock Control & PLL', link: '/devices/clock/protocol' },
               { text: 'Clock Masks', link: '/devices/clock/mask' },
               { text: 'Clock Runtime', link: '/devices/clock/runtime' },
@@ -184,6 +186,7 @@ export default defineConfig({
             items: [
               { text: 'HDMAC DMA Controller', link: '/devices/hdmac/protocol' },
               { text: 'HDMAC Descriptor Reload', link: '/devices/hdmac/reload' },
+              { text: 'EX DMA FIFO Control', link: '/devices/exdma' },
               { text: 'Copy Engine Protocol', link: '/devices/copy/protocol' },
               { text: 'Copy Directions', link: '/devices/copy/directions' },
               { text: 'Copy Repeat Operations', link: '/devices/copy/repeat' },
@@ -201,7 +204,11 @@ export default defineConfig({
               { text: 'Ordered Vector Batches', link: '/devices/transfer/vector' },
               { text: 'Target Buffer Contract', link: '/devices/transfer/target' },
               { text: 'Image Sampling', link: '/devices/transfer/image' },
+              { text: 'Repeated Path Clipping', link: '/devices/transfer/clip' },
               { text: 'SRC_OVER Composition', link: '/devices/transfer/over' },
+              { text: 'RGBA Layout Transfer', link: '/devices/transfer/copy' },
+              { text: 'Native Image-Memory Initialization', link: '/devices/transfer/initialize' },
+              { text: 'RGBA-to-YUV Conversion', link: '/devices/transfer/conversion' },
               { text: 'Lanes Controller', link: '/devices/lanes/protocol' },
             ]
           },
@@ -227,6 +234,7 @@ export default defineConfig({
               { text: 'GPIO Pad Inputs', link: '/devices/gpio/input' },
               { text: 'Exposure Control Acceptance', link: '/devices/gpio/exposure' },
               { text: 'GPIO Pin Muxing', link: '/devices/gpio/mux' },
+              { text: 'Main Menu Hierarchy & Category Navigation', link: '/devices/gpio/menu' },
               { text: 'EXIU External Interrupt Unit', link: '/devices/exiu/protocol' },
               { text: 'EXIU Readback & Ack', link: '/devices/exiu/readback' },
               { text: 'Signal IRQ Combiner', link: '/devices/signal/protocol' },
@@ -292,6 +300,27 @@ export default defineConfig({
               { text: 'Acceleration I2C Device', link: '/devices/acceleration/protocol' },
             ]
           }
+        ],
+        '/ptp/': [
+          {
+            text: 'Physical PTP Access',
+            collapsed: false,
+            items: [
+              { text: 'Access Surface Overview', link: '/ptp/index' },
+              { text: 'Recipes', link: '/ptp/recipes' },
+              { text: 'Operations', link: '/ptp/operations' },
+              { text: 'Dispatch Tables', link: '/ptp/dispatch' },
+              { text: 'Services', link: '/ptp/services' },
+              { text: 'Memory & Guard', link: '/ptp/memory' },
+              { text: 'Objects & Descriptors', link: '/ptp/objects' },
+              { text: 'Vendor Properties (259)', link: '/ptp/properties' },
+              { text: 'F091 Command Boundary', link: '/ptp/boundary' },
+              { text: 'Physical Camera Baseline', link: '/ptp/physical' },
+              { text: 'Physical Memory & NVRAM Captures', link: '/ptp/physicalmemory' },
+              { text: 'Writing a Client', link: '/ptp/client' },
+              { text: 'Update Key Recovery', link: '/ptp/recovery' },
+            ]
+          },
         ],
         '/runtime/': [
           {
@@ -359,10 +388,6 @@ export default defineConfig({
               { text: 'Internal Transport & SPI4', link: '/runtime/transport' },
               { text: 'Private Address Class & Ring', link: '/runtime/address' },
               { text: 'Shared Sending Ring', link: '/runtime/ring' },
-              { text: 'PTP Command Boundary (F091)', link: '/runtime/ptp' },
-              { text: 'Physical Camera Evidence', link: '/runtime/physical' },
-              { text: 'Nikon Vendor Properties (259)', link: '/runtime/ptp_vendor_properties' },
-              { text: 'Physical RAM & NVRAM Ground Truth', link: '/runtime/physical_ram_nvram' },
               { text: 'TL4 Coprocessor Startup', link: '/runtime/coprocessor' },
               { text: 'Private EX Composition', link: '/runtime/ex' },
               { text: 'EX Analog Input Contract', link: '/runtime/analog' },
@@ -444,6 +469,7 @@ export default defineConfig({
               { text: 'Firmware Startup Frontier', link: '/validation/frontier' },
               { text: 'Full-resolution Color and Refresh', link: '/validation/color' },
               { text: 'Capture service and cold-neutral input', link: '/validation/capture' },
+              { text: 'Native Fixture Lifetime', link: '/validation/fixtures' },
               { text: 'Graphics publication and timing qualification', link: '/validation/graphics' },
               { text: 'Battery and external-input startup profiles', link: '/validation/inputprofiles' },
               { text: 'EX report publication and host commands', link: '/validation/exreports' },

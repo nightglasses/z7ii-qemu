@@ -130,8 +130,8 @@ The table below highlights the numerical differences:
 
 ### Observed Firmware Validation Evidence
 
-In `work/runs/yuvmodel-20261023/render.json`, when the guest firmware submits
-a black clear buffer (`source_black_rgb: true`):
+In the recorded graphics-model execution, when the guest firmware submits a
+black clear buffer:
 - Output $Y$ plane contains exclusively `16`.
 - Output $UV$ plane contains exclusively `128`.
 This firmware execution observation definitively proves that the hardware

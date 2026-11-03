@@ -32,7 +32,7 @@ are compared. The initial negative test exposed an omitted draw-key binding;
 the corrected parser rejects that case and the complete targeted fixture
 passes. This establishes fixture execution, not physical-camera behavior.
 
-## Private target geometry (2026-10-31)
+## Private target geometry
 
 Target and texture geometry are independent. Original `106454da/106454f2`
 emit `reg1a3 = W | (H << 16)` from surface `+88/+8c`.

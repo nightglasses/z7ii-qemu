@@ -315,10 +315,10 @@
   "runtime/batterytool.md": {
     "records": []
   },
-  "runtime/ptp.md": {
+  "ptp/boundary.md": {
     "records": []
   },
-  "runtime/physical.md": {
+  "ptp/physical.md": {
     "records": [
       {
         "run": "physicalbaseline",

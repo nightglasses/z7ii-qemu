@@ -48,7 +48,7 @@ flowchart TB
 | Information and target activation | [Image admission and display activation](imagerequest.md) |
 | Accepted original execution | [Current startup boundary](../validation/frontier.md) |
 
-F091 is a [PTP parameter subcommand](ptp.md), not a demonstrated internal
+F091 is a [PTP parameter subcommand](../ptp/boundary.md), not a demonstrated internal
 cold-boot sender. GUI mode entry is the established producer of pending slot 3
 and event bit `0x80000000`. Battery delivery is reproduced on the multi-thread
 baseline; single-thread battery waits do not establish its present cause.

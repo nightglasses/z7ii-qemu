@@ -142,12 +142,12 @@ entered. Pending slot 3 reads `0` both at the positive-control entries and
 the final snapshot. These are concrete unsatisfied conditions on an independent
 firmware path, not proof that no later caller can satisfy them.
 
-The [display producer investigation](display.md) identifies the paired writer
+The [display producer investigation](../runtime/display.md) identifies the paired writer
 at `10540470` / `1054047c` in GUI mode entry `1053fe10`. The single-thread
 probe stops earlier at worker 0's battery wait `104386c4`. The subsequent
-[execution-profile comparison](battery.md) reproduces battery delivery on
+[execution-profile comparison](../runtime/battery.md) reproduces battery delivery on
 the current multi-thread baseline and advances past that wait; its later mode
-handoff is blocked by the [rear-panel resource fault](handoff.md). The
+handoff is blocked by the [rear-panel resource fault](../runtime/handoff.md). The
 producer's own gate `b181a6ec` is also zero,
 but its test has not been reached.
 Implementing an automatic F001/F091 sender would introduce a separate
