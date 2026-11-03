@@ -143,20 +143,24 @@ cached row is reused while its key still equals the requested code.
 
 Two consequences follow from the chain, and both are visible in the tables:
 
-- **T5 is not reachable from this entry.** Its key ranges `0x9407`–`0x940A` and
-  `0x9509`–`0x950F` are matched by `0x104789d0`, but that predicate is used only as an
-  exclusion inside the class-1 catch-all; the chain never selects class 4. Those opcodes
-  are therefore excluded from class 1 and never reach a table, so this entry point resolves
-  them to nothing. A second entry point that selects class 4 was not located.
+- **T5 is unreachable.** `table_for_class` has exactly seven call sites, all inside
+  `0x10463d70`–`0x10463e66`, and every one of them passes a literal class: `0`, `1`, `2`,
+  `3`, `5`, `6` and `8`. Class 4 is never passed, `0x10478ebc` never appears in the image
+  as a pointer (so there is no indirect caller), and the only literal reference to T5 is
+  the class-4 branch's own pool slot at `0x10478fd4`. Nothing in this build can resolve a
+  row from T5: its key ranges `0x9407`–`0x940A` and `0x9509`–`0x950F` are excluded from the
+  class-1 catch-all by `0x104789d0` and then have nowhere to go, so they resolve to
+  nothing. T5 is dead table data in C 1.70. The prediction on the wire is `0x2005` for
+  those nine codes, the same answer `0x10FF` gets for having no row; that has not been
+  measured.
 - **`0x9100`–`0x91FF` is excluded from class 1 and has no table at all.** `0x1047898e`
   matches that range by high byte, and no table in the image contains a `0x91xx` key, so
   those codes also resolve to nothing.
 
-Class 7 is the reserved slot: the byte table sends it to a `bx lr` with a zero return, so a
-class-7 opcode gets no table even though the switch reserves an entry for it. Class 8 is
-what `0x92E0`–`0x92FF` maps to, which is how the diagnostic console `0x92F0` reaches T8 —
-and why the dispatch of that family is worth reading on
-[the operations page](operations) rather than here.
+Class 7 is unreachable twice over: no call site passes it, and the byte table sends it to a
+`bx lr` with a zero return. Class 8 is what `0x92E0`–`0x92FF` maps to, which is how the
+diagnostic console `0x92F0` reaches T8 — and why the dispatch of that family is worth
+reading on [the operations page](operations) rather than here.
 
 ## What the tables do not tell you
 
