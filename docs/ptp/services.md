@@ -73,11 +73,29 @@ entries that only look different because they are byte pairs (`0x0705`, `0x0602`
 paired with lengths. `F050` and `F051` are similarly sparse — two large words and one
 byte pair each.
 
-The eight-character prefix is the only identifying string in the group, and it matches
-neither the `F003` identity strings (`Z 7_2`, `0160b1`, `012000`, `010100`) nor the
-firmware version on the device-info dataset (`V1.60`). What it identifies is not
-established; a plausible reading is a build or component identifier that all three
-subcommands share.
+The eight-character prefix is not a stored string: it is assembled by the executor. The
+first four characters are a literal `0100` at `VA 0x10774650`, copied by an `adr`-relative
+copy inside `F050`'s executor `0x10774412`. The next four are produced by the helper at
+`0x107743d2`, which reads string-table id `0x3900`, skips `.` characters among the first
+four source characters and zero-pads the result to four digits. The prefix is therefore a
+version tuple — a fixed `0100` followed by the same four-digit field that `F003` selector 4
+reports as `0160b1`, i.e. the `1.60` body version rendering as `0160`. That reading also
+explains why the three subcommands share it and why the string exists nowhere in the image
+as ASCII.
+
+The rest of the record is generated the same way rather than read out of a static blob,
+which is why the archived bytes look sparse. After the prefix, `F050`'s executor appends
+nine values taken from the RAM state block at `0xB188BDE8` through the accessor at
+`0x101004a0` (one halfword per four-byte slot), clamps each to `0`–`0xff` and appends it as
+a single byte. The archived payload's bytes 12–20 are exactly that run:
+`a6 00 00 00 00 18 02 00 0d`. The buffer is a fixed 28 bytes that `memset` zeroes before
+anything is written, so the seven bytes after the run come from further append helpers
+(`0x105014fe`, `0x10501522`, `0x10501532`) whose exact contribution was not resolved. That
+is the remaining gap in this record, not a missing capture.
+
+`F051` and `F052` carry their own executors at `0x107744d8` and `0x1077459e`, in the same
+three-callback shape and with the same version prefix, so the family is three sibling
+records rather than one record with a mode argument.
 
 ### Block-addressed record `F06E`
 
