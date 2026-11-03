@@ -1,9 +1,8 @@
 # Z7II Main Menu Hierarchy and Category Navigation Contract
 
 This document defines the physical button bindings, focus state machine,
-category hierarchy, and navigation boundaries for the Nikon Z7II main menu
-under Master Roadmap [Issue #530](https://github.com/mashiro01/nightglass/issues/530)
-and [Issue #545](https://github.com/mashiro01/nightglass/issues/545).
+category hierarchy, and navigation boundaries for the Nikon Z7II main menu,
+under the master roadmap for menu coverage.
 
 ## Menu Category Inventory
 
@@ -13,13 +12,16 @@ column (Column 0):
 
 | Index | Category | Firmware Tab | Icon Role | Default First Item |
 |---|---|---|---|---|
-| 0 | Playback Menu | 播放菜单 | Play triangle | Delete (`0x102` / 删除) |
-| 1 | Photo Shooting Menu | 照片拍摄菜单 | Still camera | Reset photo shooting menu (重设照片拍摄菜单) |
-| 2 | Movie Shooting Menu | 视频拍摄菜单 | Movie camera | Reset movie shooting menu (重设视频拍摄菜单) |
-| 3 | Custom Settings Menu | 自定义设定菜单 | Pencil | Reset custom settings (重设自定义设定) |
-| 4 | Setup Menu | 设定菜单 | Wrench | Format memory card (格式化存储卡) |
-| 5 | Retouch Menu | 润饰菜单 | Paintbrush / palette | RAW processing (RAW处理) |
-| 6 | My Menu / Recent | 我的菜单 / 最近设定 | Ordered list / clock | Add items (添加项目) |
+| 0 | Playback Menu | Playback tab | Play triangle | Delete (`0x102`) |
+| 1 | Photo Shooting Menu | Photo tab | Still camera | Reset photo shooting menu |
+| 2 | Movie Shooting Menu | Movie tab | Movie camera | Reset movie shooting menu |
+| 3 | Custom Settings Menu | Custom tab | Pencil | Reset custom settings |
+| 4 | Setup Menu | Setup tab | Wrench | Format memory card |
+| 5 | Retouch Menu | Retouch tab | Paintbrush / palette | RAW processing |
+| 6 | My Menu / Recent | My Menu tab | Ordered list / clock | Add items |
+
+The on-screen tab and item labels are localized by the firmware; the rows above name the
+same entries in English rather than reproducing the rendered strings.
 
 ## Expander Contacts and Button Input Dispatch
 
@@ -184,7 +186,7 @@ grounded in `docs/public/evidence/input/turnover.json`.
 
 In addition to the multi-level main menu, the Nikon Z7II provides a quick
 settings overlay ($i$-menu) accessed via the physical $i$ button
-([Issue #548](https://github.com/mashiro01/nightglass/issues/548)):
+(see below):
 
 ### Grid Layout and Geometry
 
@@ -250,19 +252,19 @@ superimposed over the active Live View display:
 
 This section defines the pinned setting contract, getter/setter architecture,
 consumer execution, cancel lifecycle, and NOR storage persistence protocol under
-[Issue #546](https://github.com/mashiro01/nightglass/issues/546).
+
 
 ### Pinned Setting and Original Setter/Consumer Architecture
 
 To validate genuine persistence without host-written guest configurations or
 superficial display cache overrides, the model pins the standard reversible
-camera setting **`ApplyLiveViewSetting`** (Custom Setting **d8** / 将设定应用于实时取景,
-PTP Property `0xD17B`, internal Setting ID `290` / `0x122`):
+camera setting **`ApplyLiveViewSetting`** (Custom Setting **d8**, rendered as the
+"apply settings to live view" item, PTP Property `0xD17B`, internal Setting ID `290` / `0x122`):
 
 1. **Setting Semantics**:
-   - `0` (Off / 关): EVF and monitor display constant readable brightness,
+   - `0` (Off): EVF and monitor display constant readable brightness,
      regardless of taking exposure settings (aperture/shutter/ISO).
-   - `1` (On / 开, default): Live view simulates actual exposure brightness
+   - `1` (On, default): Live view simulates actual exposure brightness
      (WYSIWYG preview).
 2. **RAM Storage Location**:
    - Base address: `0xb20d2894`.

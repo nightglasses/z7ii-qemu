@@ -916,7 +916,7 @@ The Nikon C1.70 firmware incorporates two distinct subject analysis subsystems:
   AF coordinator, which then configures the EXPEED hardware capture-group ROIs
   to track and focus precisely on the detected subject's eye.
 
-### AF-S Single-Point Focus Closed-Loop Workflow (Issue #541)
+### AF-S Single-Point Focus Closed-Loop Workflow
 
 The complete end-to-end autofocus loop operates through standard input and hardware channels:
 
@@ -948,7 +948,7 @@ The complete end-to-end autofocus loop operates through standard input and hardw
      or AF-ON does not trigger lens motor drive. The manual focus plane is strictly
      preserved.
 
-### AF-C Continuous Target Tracking and Lost-Lock Recovery (Issue #542)
+### AF-C Continuous Target Tracking and Lost-Lock Recovery
 
 In continuous autofocus mode (AF-C), the focus tracking loop repeats across
 successive preview frames without freezing at the first lock:

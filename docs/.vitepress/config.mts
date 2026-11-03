@@ -166,6 +166,7 @@ export default defineConfig({
               { text: 'MEMC Memory Controller', link: '/devices/memc/protocol' },
               { text: 'Dual-Bank SDI / DDR', link: '/devices/sdi/protocol' },
               { text: 'SDI Runtime Contracts', link: '/devices/sdi/runtime' },
+              { text: 'SDI Mode-Register Reads', link: '/devices/sdi' },
               { text: 'Clock Control & PLL', link: '/devices/clock/protocol' },
               { text: 'Clock Masks', link: '/devices/clock/mask' },
               { text: 'Clock Runtime', link: '/devices/clock/runtime' },
@@ -184,6 +185,7 @@ export default defineConfig({
             items: [
               { text: 'HDMAC DMA Controller', link: '/devices/hdmac/protocol' },
               { text: 'HDMAC Descriptor Reload', link: '/devices/hdmac/reload' },
+              { text: 'EX DMA FIFO Control', link: '/devices/exdma' },
               { text: 'Copy Engine Protocol', link: '/devices/copy/protocol' },
               { text: 'Copy Directions', link: '/devices/copy/directions' },
               { text: 'Copy Repeat Operations', link: '/devices/copy/repeat' },
@@ -201,7 +203,11 @@ export default defineConfig({
               { text: 'Ordered Vector Batches', link: '/devices/transfer/vector' },
               { text: 'Target Buffer Contract', link: '/devices/transfer/target' },
               { text: 'Image Sampling', link: '/devices/transfer/image' },
+              { text: 'Repeated Path Clipping', link: '/devices/transfer/clip' },
               { text: 'SRC_OVER Composition', link: '/devices/transfer/over' },
+              { text: 'RGBA-to-YUV Conversion', link: '/devices/transfer/conversion' },
+              { text: 'RGBA Layout Transfer', link: '/devices/transfer/copy' },
+              { text: 'Native Image-Memory Initialization', link: '/devices/transfer/initialize' },
               { text: 'Lanes Controller', link: '/devices/lanes/protocol' },
             ]
           },
@@ -227,6 +233,7 @@ export default defineConfig({
               { text: 'GPIO Pad Inputs', link: '/devices/gpio/input' },
               { text: 'Exposure Control Acceptance', link: '/devices/gpio/exposure' },
               { text: 'GPIO Pin Muxing', link: '/devices/gpio/mux' },
+              { text: 'Main Menu Hierarchy & Category Navigation', link: '/devices/gpio/menu' },
               { text: 'EXIU External Interrupt Unit', link: '/devices/exiu/protocol' },
               { text: 'EXIU Readback & Ack', link: '/devices/exiu/readback' },
               { text: 'Signal IRQ Combiner', link: '/devices/signal/protocol' },
@@ -457,6 +464,7 @@ export default defineConfig({
               { text: 'Controller & Input Layers', link: '/validation/layers' },
               { text: 'Reset, Timer & Analog Runtime', link: '/validation/runtime' },
               { text: 'Memory Pressure Tests', link: '/validation/pressure' },
+              { text: 'Native Fixture Lifetime', link: '/validation/fixtures' },
             ]
           }
         ],

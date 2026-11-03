@@ -105,7 +105,7 @@ particular transport generation is separate work if that attribution is
 needed. Changing provider gate `2001fba6` merely to make BatCk pass is
 neither needed nor supported by this observation.
 
-## EX Transport Class 2 Slot Allocation and Recovery Stability (Issue #534)
+## EX Transport Class 2 Slot Allocation and Recovery Stability
 
 The EX-to-MAS transport layer manages an SRAM queue control block at `0x20011754`:
 - Read index at `0x20011768`, write index at `0x2001176c`.
