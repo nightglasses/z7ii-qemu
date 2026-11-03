@@ -170,10 +170,11 @@ the callbacks. The two families where the callbacks were read in full are the ad
 access pair, documented in [Services](services), and the service gate itself.
 
 Subcommand rows outside `F001`–`F007`, `F021`–`F033`, `F091`–`F097` and `F165` have not
-been driven over the wire. The `A`, `B` and `C` families are entirely unprobed: their rows
-prove they exist and hand out their callback addresses, nothing more. The `A` family markup
-is also different — its rows carry a receive callback of `0x104910b3` under a zero context,
-so those subcommands expect a data phase the same way `F033` does.
+been driven over the wire. The `A`, `B` and `C` families were read statically and are
+described in [Services](services): all three have a gate that returns a constant, and the
+`A` family decodes its data phase through a descriptor table. The `A` family markup is also
+different — its rows carry a receive callback of `0x104910b3` under a zero context, so those
+subcommands expect a data phase the same way `F033` does.
 
 ## Complete listings
 

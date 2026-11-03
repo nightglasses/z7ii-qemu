@@ -311,6 +311,73 @@ accepted once `F001` has run.
 Parameters `0,0,0,0`, returns `0x2001`, no data. Reading the digest context and the object
 records immediately afterwards showed no change, so it does not start an authentication.
 
+## The `A`, `B` and `C` families
+
+The subcommand table holds three families outside `F`: eight `A` rows, three `B` rows and
+five `C` rows. None of them has been driven over the wire, so everything below is read from
+their callbacks, and every claim here is a prediction the body has not been asked to
+confirm.
+
+All three families have a **trivial gate**: their validate callbacks are a bare
+
+```
+movs r0, #1
+bx   lr
+```
+
+at `0x104910ae` for `A`, `0x10774228` for `B` and `0x10774678` for `C`. No parameter is
+checked. The only barrier in front of these subcommands is the service-mode admission gate
+that every subcommand except `F001` passes through, so on an unlocked session they are
+reachable with any parameters at all. That is worth stating plainly: this is the part of
+the surface with the least validation, and it is the part that has been exercised least.
+
+### `A` family: descriptor-decoded records
+
+The `A` rows differ only in their execute callback; receive (`0x104910b2`) and validate
+(`0x104910ae`) are shared. The receive callback re-dispatches on the subcommand and
+special-cases `0xA000`, `0xA002`, `0xA005` and `0xA101`, which means the family expects a
+host data phase the way `F033` does.
+
+Each field of that data phase is taken through the extractor `0x10491586`, which reads a
+four-byte descriptor row — source offset as a `u16`, then width as a `u16` — and copies that
+width from the received buffer. The descriptor table is at `VA 0x119e5bb0` and has eleven
+entries:
+
+| # | Offset | Width | # | Offset | Width |
+| --- | --- | --- | --- | --- | --- |
+| 0 | `0x00` | 1 | 6 | `0x0a` | 2 |
+| 1 | `0x01` | 1 | 7 | `0x0c` | 2 |
+| 2 | `0x02` | 2 | 8 | `0x10` | 4 |
+| 3 | `0x04` | 2 | 9 | `0x14` | 4 |
+| 4 | `0x06` | 2 | 10 | `0x18` | 4 |
+| 5 | `0x08` | 2 | | | |
+
+The entries are simply the offsets in order, one to two bytes and then words, so the table
+is describing a packed structure rather than an arbitrary field map. `A001`'s executor
+`0x1049114a` consumes the first nine entries, i.e. 20 bytes of host data, assembles them
+into a 28-byte structure in the exact wire order, and leaves the last two words at `0x14`
+and `0x18` to be computed: the assembled record is then passed to `0x10374b6c` and
+`0x10374c3a`, and a failure answers `0xa001`. `A005` decodes the same nine fields, so the
+family shape is shared rather than per-subcommand.
+
+The predicted request for `A001` is therefore a 20-byte payload laid out as
+`u8, u8, u16, u16, u16, u16, u16, u16, u32`, sent with `0x94FE`. What the two computed words
+mean, and what the record actually configures, is inside `0x10374b6c` and was not read.
+
+### `B` family: object-side notifications
+
+No data phase. `B002`'s executor `0x1077423a` reads parameter 1 as a byte, puts it into a
+five-parameter response and calls into the object area at `0x104c101c` with `0x80000000`
+as the first argument. The three rows are small notify-style commands rather than record
+accessors.
+
+### `C` family: subsystem triggers
+
+No data phase. `C001`'s executor `0x1077467c` zeroes the response container, calls
+`0x103da952` and `0x103e098a` in sequence and answers `0x2001` with no data — a trigger for
+two internal subsystems whose identity comes from those two addresses. `C051`, `C052`,
+`C101` and `C102` are their own executors in the same region.
+
 ## How to probe an undocumented subcommand
 
 1. Call it with `0,0,0,0` and record the response and data length.
@@ -318,3 +385,6 @@ records immediately afterwards showed no change, so it does not start an authent
    handlers take a length in a different slot.
 3. Treat a missing response as a hang: power-cycle instead of retrying.
 4. Compare any refusal code against the `0x10ff` control, which answers `0x2005`.
+5. For the `A` family, expect a data phase and send a 20-byte zero record first: their gate
+   accepts anything, so the reply distinguishes "handler refuses the record" from "the
+   subcommand does nothing".
